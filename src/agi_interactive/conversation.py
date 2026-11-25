@@ -93,6 +93,7 @@ class ConversationEngine:
             self.publish({"type": "start", "content": "", "radio_id": identifier})
             answer_parts: list[str] = []
             stream_finished = False
+            finish_reason = None
             usage: dict[str, Any] = {}
             timings: dict[str, Any] = {}
             with self.stream(
@@ -128,6 +129,7 @@ class ConversationEngine:
                     if not choices:
                         continue
                     if choices[0].get("finish_reason") is not None:
+                        finish_reason = choices[0]["finish_reason"]
                         stream_finished = True
                     chunk = choices[0].get("delta", {}).get("content", "")
                     if isinstance(chunk, str) and chunk:
@@ -136,6 +138,8 @@ class ConversationEngine:
 
             if not stream_finished:
                 raise ValueError("LLM stream ended before a completion marker")
+            if finish_reason not in (None, "stop"):
+                raise ValueError(f"LLM response was incomplete (finish reason: {finish_reason})")
             answer = "".join(answer_parts).strip()
             if not answer:
                 raise ValueError("LLM returned an empty response")
