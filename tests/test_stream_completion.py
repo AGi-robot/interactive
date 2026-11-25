@@ -26,3 +26,21 @@ def test_only_complete_streams_are_saved(terminal):
     else:
         memory.add_exchange.assert_not_called()
         assert events[-1]['type'] == 'error'
+
+
+def test_length_finish_is_not_saved():
+    events = []
+    memory = Mock()
+    memory.recent.return_value = []
+    response = Mock()
+    response.__enter__ = Mock(return_value=response)
+    response.__exit__ = Mock(return_value=False)
+    response.iter_lines.return_value = [
+        'data: ' + json.dumps({'choices': [{'delta': {'content': 'Partial'}, 'finish_reason': 'length'}]}),
+        'data: [DONE]',
+    ]
+    ConversationEngine(memory=memory, publish=events.append, base_url='http://unused',
+                       model='fixture', system_prompt='Grace', stream=Mock(return_value=response)).answer('hello')
+    memory.add_exchange.assert_not_called()
+    assert events[-1]['type'] == 'error'
+    assert 'incomplete' in events[-1]['content']
