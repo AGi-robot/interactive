@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from collections.abc import Callable
 from datetime import datetime
@@ -45,6 +46,7 @@ class ConversationEngine:
         timeout: float = 120,
         stream: Callable[..., Any] | None = None,
         logger: EventLogger | None = None,
+        lighting_url: str | None = None,
     ) -> None:
         self.memory = memory
         self.publish = publish
@@ -56,6 +58,19 @@ class ConversationEngine:
         self.timeout = timeout
         self.stream = stream or httpx.stream
         self.logger = logger or logging.getLogger("agi_interactive")
+        self.lighting_tools = {}
+        url = lighting_url if lighting_url is not None else os.getenv("AGI_LIGHTING_CONSOLE_URL", "")
+        if url:
+            from agi_toolbox.lighting import LightingClient, LIGHTING_PARAMETERS, LIGHTING_DESCRIPTION, SAVE_LIGHTING_PARAMETERS
+            lighting = LightingClient(url)
+            empty = {"type": "object", "properties": {}, "additionalProperties": False}
+            self.lighting_tools = {
+                "lighting_catalog": ("Read editable colour names and saved lighting effects.", empty, lighting.catalog),
+                "save_lighting_preset": ("Add or replace an effect and optional named colours in the persistent Markdown catalogue. New rhythms can use rhythm_pattern. Does not activate the effect.", SAVE_LIGHTING_PARAMETERS, lighting.save_preset),
+                "set_lighting": (LIGHTING_DESCRIPTION, LIGHTING_PARAMETERS, lighting.set_effect),
+                "lighting_status": ("Inspect the lighting effect and device connection.", empty, lighting.status),
+                "stop_lighting": ("Stop the custom effect and restore activity lighting.", empty, lighting.stop),
+            }
 
     def answer(self, text: str, identifier: str = "") -> None:
         """Process one user turn and publish streamed response events."""
@@ -96,45 +111,92 @@ class ConversationEngine:
             finish_reason = None
             usage: dict[str, Any] = {}
             timings: dict[str, Any] = {}
-            with self.stream(
-                "POST",
-                f"{self.base_url}/chat/completions",
-                json={
-                    "model": self.model,
-                    "messages": messages,
-                    "stream": True,
+            for round_index in range(4):
+                calls = {}
+                round_parts = []
+                stream_finished = False
+                finish_reason = None
+                payload = {
+                    "model": self.model, "messages": messages, "stream": True,
                     "stream_options": {"include_usage": True},
-                },
-                headers=headers,
-                timeout=self.timeout,
-            ) as response:
-                self.logger.info(f"LLM streaming request returned HTTP {response.status_code}")
-                response.raise_for_status()
-                for line in response.iter_lines():
-                    if not line or not line.startswith("data:"):
-                        continue
-                    payload = line[5:].strip()
-                    if payload == "[DONE]":
-                        stream_finished = True
-                        break
+                }
+                if self.lighting_tools:
+                    payload["tools"] = [{"type": "function", "function": {
+                        "name": name, "description": tool[0], "parameters": tool[1],
+                    }} for name, tool in self.lighting_tools.items()]
+                    payload["tool_choice"] = "auto" if round_index < 3 else "none"
+                with self.stream(
+                    "POST",
+                    f"{self.base_url}/chat/completions",
+                    json=payload,
+                    headers=headers,
+                    timeout=self.timeout,
+                ) as response:
+                    self.logger.info(f"LLM streaming request returned HTTP {response.status_code}")
+                    response.raise_for_status()
+                    for line in response.iter_lines():
+                        if not line or not line.startswith("data:"):
+                            continue
+                        payload = line[5:].strip()
+                        if payload == "[DONE]":
+                            stream_finished = True
+                            break
+                        try:
+                            event = json.loads(payload)
+                        except (TypeError, json.JSONDecodeError):
+                            continue
+                        if isinstance(event.get("usage"), dict):
+                            usage = event["usage"]
+                        if isinstance(event.get("timings"), dict):
+                            timings = event["timings"]
+                        choices = event.get("choices") or []
+                        if not choices:
+                            continue
+                        if choices[0].get("finish_reason") is not None:
+                            finish_reason = choices[0]["finish_reason"]
+                            stream_finished = True
+                        delta = choices[0].get("delta", {})
+                        for call in delta.get("tool_calls") or []:
+                            index = call.get("index")
+                            if type(index) is not int or not 0 <= index < 5:
+                                raise ValueError("Invalid or excessive lighting tool calls")
+                            part = calls.setdefault(index, {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
+                            if call.get("id"):
+                                part["id"] = call["id"]
+                            for key in ("name", "arguments"):
+                                value = (call.get("function") or {}).get(key, "")
+                                if not isinstance(value, str):
+                                    raise ValueError("Invalid lighting tool delta")
+                                part["function"][key] += value
+                                if len(part["function"][key]) > 16000:
+                                    raise ValueError("Lighting tool arguments exceed limit")
+                        chunk = delta.get("content", "")
+                        if isinstance(chunk, str) and chunk:
+                            answer_parts.append(chunk)
+                            round_parts.append(chunk)
+                            self.publish({"type": "delta", "content": chunk, "radio_id": identifier})
+                if not calls:
+                    break
+                if round_index == 3 or not stream_finished or finish_reason != "tool_calls":
+                    raise ValueError("Incomplete or excessive lighting tool calls")
+                ordered = [calls[k] for k in sorted(calls)]
+                if any(not c["id"] for c in ordered) or len({c["id"] for c in ordered}) != len(ordered):
+                    raise ValueError("Missing or duplicate lighting tool call IDs")
+                messages.append({"role": "assistant", "content": "".join(round_parts) or None,
+                                 "tool_calls": ordered})
+                for call in ordered:
                     try:
-                        event = json.loads(payload)
-                    except (TypeError, json.JSONDecodeError):
-                        continue
-                    if isinstance(event.get("usage"), dict):
-                        usage = event["usage"]
-                    if isinstance(event.get("timings"), dict):
-                        timings = event["timings"]
-                    choices = event.get("choices") or []
-                    if not choices:
-                        continue
-                    if choices[0].get("finish_reason") is not None:
-                        finish_reason = choices[0]["finish_reason"]
-                        stream_finished = True
-                    chunk = choices[0].get("delta", {}).get("content", "")
-                    if isinstance(chunk, str) and chunk:
-                        answer_parts.append(chunk)
-                        self.publish({"type": "delta", "content": chunk, "radio_id": identifier})
+                        name = call["function"]["name"]
+                        if name not in self.lighting_tools:
+                            raise ValueError("Unknown tool")
+                        arguments = json.loads(call["function"]["arguments"])
+                        if not isinstance(arguments, dict):
+                            raise ValueError("Tool arguments must be an object")
+                        result = self.lighting_tools[name][2](**arguments)
+                    except Exception as error:
+                        result = {"error": str(error)[:500]}
+                    messages.append({"role": "tool", "tool_call_id": call["id"],
+                                     "content": json.dumps(result)})
 
             if not stream_finished:
                 raise ValueError("LLM stream ended before a completion marker")
