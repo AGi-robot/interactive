@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agi-interactive"
 version = "0.1.0"
-description = "Grace's transport-independent conversation turn engine"
+description = "AIVA's transport-independent conversation turn engine"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "AGPL-3.0-only"
