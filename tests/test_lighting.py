@@ -1,7 +1,7 @@
 import json
 import unittest
 from contextlib import contextmanager
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from agi_interactive.conversation import ConversationEngine
 
 
@@ -20,6 +20,11 @@ class Memory:
 
 
 class StreamingLightingTests(unittest.TestCase):
+    def setUp(self):
+        patcher = patch('agi_toolbox.lighting_activity.ResponseLighting', return_value=Mock())
+        self.response_factory = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def engine(self, rounds):
         requests, events, memory = [], [], Memory()
         @contextmanager
@@ -56,6 +61,8 @@ class StreamingLightingTests(unittest.TestCase):
         self.assertEqual(requests[1]['messages'][-1]['role'], 'tool')
         self.assertEqual(events[-1]['type'], 'done')
         self.assertEqual(memory.exchanges, [('A little colour please', 'Here you go.')])
+        self.response_factory.return_value.start.assert_called_once()
+        self.response_factory.return_value.close.assert_called_once()
 
     def test_incomplete_calls_do_not_execute(self):
         engine, _, events, memory = self.engine([[({'tool_calls': [
@@ -65,6 +72,8 @@ class StreamingLightingTests(unittest.TestCase):
             execute.assert_not_called()
         self.assertEqual(events[-1]['type'], 'error')
         self.assertEqual(memory.exchanges, [])
+        self.response_factory.return_value.start.assert_not_called()
+        self.response_factory.return_value.close.assert_called_once()
 
     def test_plain_answer_can_decline_tools(self):
         engine, _, events, memory = self.engine([[({'content': 'Hello!'}, 'stop')]])
@@ -103,3 +112,17 @@ class StreamingLightingTests(unittest.TestCase):
             other.memory = ConversationStore(path)
             other.answer('Why did you choose those colours?')
             self.assertIn('I want our usual colours again', requests[0]['messages'][1]['content'])
+
+    def test_response_reporter_closes_after_partial_stream_failure(self):
+        engine, _, events, _ = self.engine([[({'content': 'Partial reply'}, 'length')]])
+        engine.answer('hello')
+        self.response_factory.return_value.start.assert_called_once()
+        self.response_factory.return_value.close.assert_called_once()
+        self.assertEqual(events[-1]['type'], 'error')
+
+    def test_response_reporter_covers_local_clock_reply(self):
+        engine, _, events, _ = self.engine([])
+        engine.answer('What time is it?')
+        self.response_factory.return_value.start.assert_called_once()
+        self.response_factory.return_value.close.assert_called_once()
+        self.assertEqual(events[-1]['type'], 'done')

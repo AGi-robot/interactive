@@ -60,6 +60,7 @@ class ConversationEngine:
         self.logger = logger or logging.getLogger("agi_interactive")
         self.lighting_tools = {}
         url = lighting_url if lighting_url is not None else os.getenv("AGI_LIGHTING_SERVICE_URL", "")
+        self._lighting_url = url
         if url:
             if not callable(getattr(memory, 'record_event', None)) or not callable(getattr(memory, 'recall_events', None)):
                 raise ValueError('Lighting requires a Memory conversation store with record_event and recall_events')
@@ -80,6 +81,11 @@ class ConversationEngine:
     def answer(self, text: str, identifier: str = "") -> None:
         """Process one user turn and publish streamed response events."""
         started_at = perf_counter()
+        response_lighting = None
+        if self._lighting_url:
+            from agi_toolbox.lighting_activity import ResponseLighting
+            response_lighting = ResponseLighting(self._lighting_url, on_error=self.logger.info)
+        response_started = False
         try:
             now = datetime.now(ZoneInfo(self.timezone_name))
             normalized_text = text.casefold()
@@ -95,7 +101,7 @@ class ConversationEngine:
                 normalized_text,
             ))
             if asks_for_clock or asks_for_date:
-                self._answer_time(text, identifier, now, asks_for_clock, asks_for_date, started_at)
+                self._answer_time(text, identifier, now, asks_for_clock, asks_for_date, started_at, response_lighting)
                 return
 
             current_time = (
@@ -183,6 +189,9 @@ class ConversationEngine:
                                     raise ValueError("Lighting tool arguments exceed limit")
                         chunk = delta.get("content", "")
                         if isinstance(chunk, str) and chunk:
+                            if response_lighting is not None and not response_started:
+                                response_lighting.start()
+                                response_started = True
                             answer_parts.append(chunk)
                             round_parts.append(chunk)
                             self.publish({"type": "delta", "content": chunk, "radio_id": identifier})
@@ -253,6 +262,10 @@ class ConversationEngine:
                 "radio_id": identifier,
             })
 
+        finally:
+            if response_lighting is not None:
+                response_lighting.close()
+
     def _answer_time(
         self,
         text: str,
@@ -261,6 +274,7 @@ class ConversationEngine:
         asks_for_clock: bool,
         asks_for_date: bool,
         started_at: float,
+        response_lighting=None,
     ) -> None:
         local_date = f"{now.strftime('%A, %B')} {now.day}, {now.year}"
         local_time = now.strftime("%I:%M %p").lstrip("0")
@@ -271,6 +285,8 @@ class ConversationEngine:
         else:
             answer = f"Today is {local_date} ({self.timezone_name})."
         self.publish({"type": "start", "content": "", "radio_id": identifier})
+        if response_lighting is not None:
+            response_lighting.start()
         self.publish({"type": "delta", "content": answer, "radio_id": identifier})
         self.memory.add_exchange(text, answer)
         self.publish({
