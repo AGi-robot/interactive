@@ -1,6 +1,6 @@
 # Interactive
 
-Grace's text conversation engine. Interactive assembles the system prompt and
+AIVA's text conversation engine. Interactive assembles the system prompt and
 recent history, calls an OpenAI-compatible chat endpoint, streams response
 events, and persists completed exchanges through the supplied Memory API.
 
@@ -37,7 +37,7 @@ neighboring checkout using `pip install -r requirements.txt`:
 
 ```sh
 cd AIVA
-git clone https://github.com/AGi-robot/interactive.git interactive
+git clone https://github.com/Project-AGi/interactive.git interactive
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
@@ -47,18 +47,18 @@ The Python distribution is `agi-interactive`, imported as `agi_interactive`.
 
 This repository is AGPL-3.0-only. The conversation-turn implementation was
 extracted and adapted from the text-chat path in
-`AGi-robot/shell`'s `aiva_chat` ROS adapter. Canvas and Imaging code remain
+`Project-AGi/shell`'s `aiva_chat` ROS adapter. Canvas and Imaging code remain
 outside this package.
 
 ## Optional expressive lighting
 
-Install the matching `Project-AGi/toolbox` lighting client in Grace's environment, run the matching independent Toolbox lighting service, and set `AGI_LIGHTING_SERVICE_URL=http://127.0.0.1:8854` in the process hosting Interactive. Replace the previous `AGI_LIGHTING_CONSOLE_URL` setting with `AGI_LIGHTING_SERVICE_URL`; the old variable is no longer used. Hosts can instead pass `lighting_url` to `ConversationEngine`; an empty string disables it.
+Install the matching `Project-AGi/toolbox` lighting client in AIVA's environment, run the matching independent Toolbox lighting service, and set `AGI_LIGHTING_SERVICE_URL=http://127.0.0.1:8854` in the process hosting Interactive. Replace the previous `AGI_LIGHTING_CONSOLE_URL` setting with `AGI_LIGHTING_SERVICE_URL`; the old variable is no longer used. Hosts can instead pass `lighting_url` to `ConversationEngine`; an empty string disables it.
 
 Chat requests then offer `set_lighting`, `lighting_status`, and `stop_lighting` with automatic tool choice. The model chooses freely whether to compose an effect; no mood, holiday or activity rules are injected. Tool arguments are assembled from the response stream and executed only after a complete tool-call finish. Up to three tool rounds precede the final streamed reply; errors become tool results. Existing memory keeps the user-visible exchange, not raw tool messages. Token metrics describe the final request; latency covers the full turn.
 
 See [Toolbox's lighting contract](https://github.com/Project-AGi/toolbox/blob/dev/LIGHTING.md) for colours, transitions, brightness, rhythms and stop/expiry behavior. This does not introduce idle triggers or a scheduler. Use a model endpoint that supports OpenAI-compatible tool calls.
 
-The lighting tools also include `lighting_catalog` and `save_lighting_preset`. Grace can expand the runtime Markdown catalogue with named colours and complete effects (including programmable brightness rhythms and Morse messages) without changing code. Saving is separate from starting an effect. Files and limits are described in Toolbox's lighting guide.
+The lighting tools also include `lighting_catalog` and `save_lighting_preset`. AIVA can expand the runtime Markdown catalogue with named colours and complete effects (including programmable brightness rhythms and Morse messages) without changing code. Saving is separate from starting an effect. Files and limits are described in Toolbox's lighting guide.
 
 Lighting integration also requires the matching Memory `ConversationStore.record_event` and `recall_events` support. Every attempted set/save/stop action is recorded immediately with its reason, arguments and outcome in the same conversation database, including when the subsequent reply fails. Recent/relevant events are recalled into chat context and a `lighting_history` tool allows explicit recall. This is persistent action memory scoped to the current conversation; the Markdown catalogue separately retains saved definitions and their meanings. Model-facing changes require brief reasons, while explanations remain natural chat, without fixed occasions or mandatory announcements. Memory-write errors are reported in the tool result.
 

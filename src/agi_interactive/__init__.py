@@ -1,4 +1,4 @@
-"""Transport-independent conversation handling for Grace."""
+"""Transport-independent conversation handling for AIVA."""
 
 from .conversation import ConversationEngine
 

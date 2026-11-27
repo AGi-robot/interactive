@@ -18,7 +18,7 @@ def test_only_complete_streams_are_saved(terminal):
     response.__exit__ = Mock(return_value=False)
     response.iter_lines.return_value = lines
     engine = ConversationEngine(memory=memory, publish=events.append, base_url='http://unused',
-                                model='fixture', system_prompt='Grace', stream=Mock(return_value=response))
+                                model='fixture', system_prompt='AIVA', stream=Mock(return_value=response))
     engine.answer('hello', 'request-1')
     if terminal:
         memory.add_exchange.assert_called_once_with('hello', 'Hello')
@@ -40,7 +40,7 @@ def test_length_finish_is_not_saved():
         'data: [DONE]',
     ]
     ConversationEngine(memory=memory, publish=events.append, base_url='http://unused',
-                       model='fixture', system_prompt='Grace', stream=Mock(return_value=response)).answer('hello')
+                       model='fixture', system_prompt='AIVA', stream=Mock(return_value=response)).answer('hello')
     memory.add_exchange.assert_not_called()
     assert events[-1]['type'] == 'error'
     assert 'incomplete' in events[-1]['content']

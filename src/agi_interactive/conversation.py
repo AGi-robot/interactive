@@ -253,7 +253,7 @@ class ConversationEngine:
                     "total_tokens": total_tokens,
                 },
             })
-            self.logger.info(f"Published Grace reply (id={identifier})")
+            self.logger.info(f"Published AIVA reply (id={identifier})")
         except Exception as error:
             self.logger.error(f"AIVA LLM request failed: {error}")
             self.publish({
