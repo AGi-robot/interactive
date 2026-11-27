@@ -59,7 +59,7 @@ class ConversationEngine:
         self.stream = stream or httpx.stream
         self.logger = logger or logging.getLogger("agi_interactive")
         self.lighting_tools = {}
-        url = lighting_url if lighting_url is not None else os.getenv("AGI_LIGHTING_CONSOLE_URL", "")
+        url = lighting_url if lighting_url is not None else os.getenv("AGI_LIGHTING_SERVICE_URL", "")
         if url:
             if not callable(getattr(memory, 'record_event', None)) or not callable(getattr(memory, 'recall_events', None)):
                 raise ValueError('Lighting requires a Memory conversation store with record_event and recall_events')

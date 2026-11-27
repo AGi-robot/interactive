@@ -35,7 +35,7 @@ class StreamingLightingTests(unittest.TestCase):
                     yield 'data: [DONE]'
             yield Response()
         engine = ConversationEngine(memory=memory, publish=events.append, base_url='http://llm',
-                                    model='test', system_prompt='Grace', stream=stream, lighting_url='http://console')
+                                    model='test', system_prompt='Grace', stream=stream, lighting_url='http://lighting-service')
         return engine, requests, events, memory
 
     def test_fragmented_calls_execute_then_resume_stream(self):
